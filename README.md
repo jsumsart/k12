@@ -1,6 +1,6 @@
 # K12 Study Buddy
 
-This repo now uses a GitHub Pages frontend plus a separate chat API backend instead of Base44.
+This repo now uses a GitHub Pages frontend plus a separate Cloudflare Worker chat backend instead of Base44.
 
 ## Frontend setup
 
@@ -12,22 +12,24 @@ This repo now uses a GitHub Pages frontend plus a separate chat API backend inst
 
 ## Why this changed
 
-GitHub Pages is static hosting. That means it cannot safely hold a secret API key for OpenAI or any other LLM provider. The browser app now calls a separate backend endpoint defined in `config.js`.
+GitHub Pages is static hosting. That means the browser app needs a separate backend endpoint for model calls. The frontend now calls a worker URL defined in `config.js`.
 
 ## Included backend example
 
-This repo includes a Cloudflare Worker example in [worker/src/index.js](C:\Users\Brittany\OneDrive\Documents\K12\worker\src\index.js). It accepts the chat history from the frontend and securely forwards it to OpenAI.
+This repo includes a Cloudflare Worker example in [worker/src/index.js](C:\Users\Brittany\OneDrive\Documents\K12\worker\src\index.js). It accepts the chat history from the frontend and sends it to Cloudflare Workers AI using an open model.
 
 ### Worker setup
 
 1. Go to [worker/wrangler.toml](C:\Users\Brittany\OneDrive\Documents\K12\worker\wrangler.toml) and update `ALLOWED_ORIGIN` if needed.
 2. From [worker](C:\Users\Brittany\OneDrive\Documents\K12\worker), install worker dependencies:
    `npm.cmd install`
-3. Set your OpenAI secret in Cloudflare:
-   `npx wrangler secret put OPENAI_API_KEY`
-4. Deploy the worker:
+3. Deploy the worker:
    `npx wrangler deploy`
-5. Paste the deployed worker URL into [config.js](C:\Users\Brittany\OneDrive\Documents\K12\config.js) as `chatApiUrl`.
+4. Paste the deployed worker URL into [config.js](C:\Users\Brittany\OneDrive\Documents\K12\config.js) as `chatApiUrl`.
+
+### Model choice
+
+The default worker model is `@cf/meta/llama-3.1-8b-instruct-fast`, configured in [worker/wrangler.toml](C:\Users\Brittany\OneDrive\Documents\K12\worker\wrangler.toml). You can swap this to another Workers AI open model later if you want.
 
 ## GitHub Pages flow
 
