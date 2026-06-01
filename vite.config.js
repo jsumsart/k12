@@ -4,6 +4,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   base: process.env.NODE_ENV === "production" ? "/k12/" : "/",
+  build: {
+    rollupOptions: {
+      input: "app.html"
+    }
+  },
   logLevel: "error",
   plugins: [
     base44({
