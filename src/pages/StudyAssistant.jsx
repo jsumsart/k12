@@ -10,9 +10,9 @@ import {
   Sparkles,
   Zap
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { sendChatRequest } from "@/lib/chat-api";
 import { cn } from "@/lib/utils";
 
 const SYSTEM_PROMPT =
@@ -118,18 +118,21 @@ export default function StudyAssistant() {
     setIsLoading(true);
 
     const history = updatedMessages
-      .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`)
-      .join("\n\n");
-
-    const prompt = `${SYSTEM_PROMPT}\n\n--- Conversation ---\n${history}\n\nAssistant:`;
+      .map((message) => ({
+        role: message.role,
+        content: message.content
+      }));
 
     try {
-      const response = await base44.integrations.Core.InvokeLLM({ prompt });
+      const response = await sendChatRequest({
+        systemPrompt: SYSTEM_PROMPT,
+        messages: history
+      });
       setMessages((current) => [...current, { role: "assistant", content: response }]);
     } catch (err) {
       setError(
         err?.message ||
-          "The Base44 request failed. Check your .env.local values and make sure the backend app is available."
+          "The chat request failed. Check config.js and make sure the chat API backend is deployed."
       );
     } finally {
       setIsLoading(false);
