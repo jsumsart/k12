@@ -11,14 +11,14 @@ function buildInput(systemPrompt, messages) {
   if (systemPrompt) {
     parts.push({
       role: "system",
-      content: [{ type: "input_text", text: systemPrompt }]
+      content: systemPrompt
     });
   }
 
   for (const message of messages) {
     parts.push({
       role: message.role,
-      content: [{ type: "input_text", text: message.content }]
+      content: message.content
     });
   }
 
@@ -50,13 +50,6 @@ export default {
       });
     }
 
-    if (!env.OPENAI_API_KEY) {
-      return new Response(JSON.stringify({ error: "OPENAI_API_KEY is not set." }), {
-        status: 500,
-        headers
-      });
-    }
-
     try {
       const { systemPrompt, messages } = await request.json();
 
@@ -67,35 +60,20 @@ export default {
         });
       }
 
-      const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: env.OPENAI_MODEL || "gpt-4.1-mini",
-          input: buildInput(systemPrompt, messages)
-        })
+      const aiResponse = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct-fast", {
+        messages: buildInput(systemPrompt, messages),
+        max_tokens: 500,
+        temperature: 0.6
       });
-
-      const payload = await openAiResponse.json();
-
-      if (!openAiResponse.ok) {
-        return new Response(
-          JSON.stringify({
-            error: payload?.error?.message || "OpenAI request failed."
-          }),
-          {
-            status: openAiResponse.status,
-            headers
-          }
-        );
-      }
+      const reply =
+        aiResponse?.response ||
+        aiResponse?.result?.response ||
+        aiResponse?.result ||
+        aiResponse?.output_text;
 
       return new Response(
         JSON.stringify({
-          reply: payload.output_text || "I could not generate a reply."
+          reply: reply || "I could not generate a reply."
         }),
         {
           status: 200,
