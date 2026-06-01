@@ -11,6 +11,11 @@ export function getRuntimeConfig() {
 
   return {
     chatApiUrl: config.chatApiUrl || "",
-    appName: config.appName || "K12 Study Buddy"
+    appName: config.appName || "K12 Study Buddy",
+    limits: {
+      maxChatsPerUser: config.maxChatsPerUser ?? 3,
+      maxMessagesPerChat: config.maxMessagesPerChat ?? 8,
+      maxTotalMessagesPerUser: config.maxTotalMessagesPerUser ?? 20
+    }
   };
 }
