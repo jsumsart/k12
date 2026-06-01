@@ -10,9 +10,21 @@ import {
   Sparkles,
   Zap
 } from "lucide-react";
+import ChatSidebar from "@/components/ChatSidebar";
+import LoginCard from "@/components/LoginCard";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { sendChatRequest } from "@/lib/chat-api";
+import { getRuntimeConfig } from "@/lib/runtime-config";
+import {
+  buildChatTitle,
+  clearStoredSession,
+  createChatRecord,
+  getStoredSession,
+  getUserState,
+  saveSession,
+  saveUserChats
+} from "@/lib/test-auth-storage";
 import { cn } from "@/lib/utils";
 
 const SYSTEM_PROMPT =
@@ -98,21 +110,110 @@ function TypingIndicator() {
 }
 
 export default function StudyAssistant() {
-  const [messages, setMessages] = useState([]);
+  const [session, setSession] = useState(() => getStoredSession());
+  const [chats, setChats] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const bottomRef = useRef(null);
+  const { limits } = getRuntimeConfig();
+
+  const activeChat = chats.find((chat) => chat.id === activeChatId) || null;
+  const messages = activeChat?.messages || [];
+  const totalMessagesUsed = chats.reduce((count, chat) => count + chat.messages.length, 0);
+  const canCreateChat = chats.length < limits.maxChatsPerUser;
+  const hasReachedChatMessageLimit = messages.length >= limits.maxMessagesPerChat;
+  const hasReachedTotalMessageLimit = totalMessagesUsed >= limits.maxTotalMessagesPerUser;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading, error]);
 
-  async function sendMessage(text) {
-    const userMessage = { role: "user", content: text };
-    const updatedMessages = [...messages, userMessage];
+  useEffect(() => {
+    if (!session) {
+      setChats([]);
+      setActiveChatId(null);
+      return;
+    }
 
-    setMessages(updatedMessages);
+    const user = getUserState(session.userId);
+    const nextChats = user.chats?.length ? user.chats : [createChatRecord()];
+
+    setChats(nextChats);
+    setActiveChatId((current) => current || nextChats[0].id);
+  }, [session]);
+
+  function persistChats(updater) {
+    setChats((currentChats) => {
+      const nextChats = updater(currentChats);
+
+      if (session) {
+        saveUserChats(session.userId, () => nextChats);
+      }
+
+      return nextChats;
+    });
+  }
+
+  function handleLogin(credentials) {
+    const nextSession = saveSession(credentials);
+    setSession(nextSession);
+    setError("");
+  }
+
+  function handleLogout() {
+    clearStoredSession();
+    setSession(null);
+    setInput("");
+    setError("");
+  }
+
+  function handleNewChat() {
+    if (!canCreateChat) {
+      setError(`This test is limited to ${limits.maxChatsPerUser} chats per user.`);
+      return;
+    }
+
+    const newChat = createChatRecord();
+    persistChats((currentChats) => [newChat, ...currentChats]);
+    setActiveChatId(newChat.id);
+    setError("");
+  }
+
+  async function sendMessage(text) {
+    if (!activeChat) {
+      return;
+    }
+
+    if (hasReachedChatMessageLimit) {
+      setError(`This test chat is capped at ${limits.maxMessagesPerChat} messages.`);
+      return;
+    }
+
+    if (hasReachedTotalMessageLimit) {
+      setError(
+        `This test account is capped at ${limits.maxTotalMessagesPerUser} total messages.`
+      );
+      return;
+    }
+
+    const userMessage = { role: "user", content: text };
+    const updatedMessages = [...activeChat.messages, userMessage];
+
+    persistChats((currentChats) =>
+      currentChats.map((chat) =>
+        chat.id === activeChat.id
+          ? {
+              ...chat,
+              title:
+                chat.messages.length === 0 ? buildChatTitle(text) || "New Chat" : chat.title,
+              messages: updatedMessages,
+              updatedAt: new Date().toISOString()
+            }
+          : chat
+      )
+    );
     setInput("");
     setError("");
     setIsLoading(true);
@@ -128,7 +229,17 @@ export default function StudyAssistant() {
         systemPrompt: SYSTEM_PROMPT,
         messages: history
       });
-      setMessages((current) => [...current, { role: "assistant", content: response }]);
+      persistChats((currentChats) =>
+        currentChats.map((chat) =>
+          chat.id === activeChat.id
+            ? {
+                ...chat,
+                messages: [...chat.messages, { role: "assistant", content: response }],
+                updatedAt: new Date().toISOString()
+              }
+            : chat
+        )
+      );
     } catch (err) {
       setError(
         err?.message ||
@@ -146,6 +257,17 @@ export default function StudyAssistant() {
         sendMessage(input.trim());
       }
     }
+  }
+
+  if (!session) {
+    return (
+      <div
+        className="min-h-screen"
+        style={{ background: "linear-gradient(135deg, #4f46e5 0%, #6d28d9 45%, #0f172a 100%)" }}
+      >
+        <LoginCard onLogin={handleLogin} />
+      </div>
+    );
   }
 
   return (
@@ -170,15 +292,29 @@ export default function StudyAssistant() {
             <p className="text-sm text-violet-200">Guided help for K-12 learners</p>
           </div>
         </div>
-        <Button onClick={() => setMessages([])} className="shadow-lg">
-          <Plus className="h-4 w-4" />
-          New Chat
-        </Button>
+        <div className="text-right text-sm text-violet-100">
+          <p>{session.name}</p>
+          <p>
+            {chats.length}/{limits.maxChatsPerUser} chats
+          </p>
+        </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-4 py-6">
-        {messages.length === 0 ? (
-          <div className="mx-auto flex h-full max-w-4xl flex-col items-center justify-center gap-6 px-4 text-center">
+      <main className="flex flex-1 flex-col gap-4 px-4 py-6 lg:flex-row">
+        <ChatSidebar
+          chats={chats}
+          activeChatId={activeChatId}
+          currentUserName={session.name}
+          onSelectChat={setActiveChatId}
+          onNewChat={handleNewChat}
+          onLogout={handleLogout}
+          chatCountLabel={`${chats.length} of ${limits.maxChatsPerUser} chats used`}
+          canCreateChat={canCreateChat}
+        />
+
+        <div className="flex min-h-[70vh] flex-1 flex-col overflow-hidden rounded-[2rem]">
+          {messages.length === 0 ? (
+            <div className="mx-auto flex h-full w-full max-w-4xl flex-1 flex-col items-center justify-center gap-6 px-4 text-center">
             <div className="flex h-20 w-20 items-center justify-center rounded-[2rem] bg-white/15 shadow-2xl backdrop-blur">
               <Brain className="h-9 w-9 text-white" />
             </div>
@@ -209,9 +345,14 @@ export default function StudyAssistant() {
               The assistant explains concepts and asks guiding questions instead of solving graded
               assignments outright.
             </p>
+            <div className="glass-panel rounded-3xl px-4 py-3 text-sm text-violet-50">
+              <p>Test limits</p>
+              <p>{limits.maxMessagesPerChat} messages per chat</p>
+              <p>{limits.maxTotalMessagesPerUser} total messages per user</p>
+            </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl">
+            <div className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto">
             {messages.map((message, index) => (
               <MessageBubble key={`${message.role}-${index}`} {...message} />
             ))}
@@ -224,6 +365,7 @@ export default function StudyAssistant() {
             <div ref={bottomRef} />
           </div>
         )}
+        </div>
       </main>
 
       <footer className="mx-auto w-full max-w-3xl px-2 pb-4">
@@ -232,10 +374,14 @@ export default function StudyAssistant() {
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask me about a topic you are learning..."
+            placeholder={
+              hasReachedChatMessageLimit || hasReachedTotalMessageLimit
+                ? "Message limit reached for this test"
+                : "Ask me about a topic you are learning..."
+            }
             className="min-h-[52px] resize-none border-none"
             rows={1}
-            disabled={isLoading}
+            disabled={isLoading || hasReachedChatMessageLimit || hasReachedTotalMessageLimit}
           />
           <Button
             onClick={() => {
@@ -243,7 +389,12 @@ export default function StudyAssistant() {
                 sendMessage(input.trim());
               }
             }}
-            disabled={!input.trim() || isLoading}
+            disabled={
+              !input.trim() ||
+              isLoading ||
+              hasReachedChatMessageLimit ||
+              hasReachedTotalMessageLimit
+            }
             className="h-11 w-11 rounded-2xl p-0 shadow-lg"
           >
             <Send className="h-4 w-4" />
