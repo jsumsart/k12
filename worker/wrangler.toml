@@ -1,0 +1,7 @@
+name = "k12-chat-api"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://jsumsart.github.io"
+OPENAI_MODEL = "gpt-4.1-mini"
